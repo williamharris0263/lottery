@@ -1,6 +1,6 @@
 name: LotteryApp
 options:
-  bundleIdPrefix: com.oidutsadam
+  bundleIdPrefix: com.oidutsadam.v2
 targets:
   LotteryApp:
     type: application
@@ -15,7 +15,4 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        
-        INFOPLIST_KEY_CFBundleIconName: AppIcon
-        INFOPLIST_KEY_CFBundleIconFile: AppIcon
+        INFOPLIST_KEY_CFBundleIconFile: "Icon.png"
