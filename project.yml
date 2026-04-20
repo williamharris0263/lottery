@@ -7,6 +7,10 @@ targets:
     platform: iOS
     deploymentTarget: "15.0"
     sources: [Sources]
+    info:
+      path: Info.plist
+      properties:
+        CFBundleIconName: "AppIcon"
     settings:
       base:
         # 自动生成必须的 Info.plist 属性

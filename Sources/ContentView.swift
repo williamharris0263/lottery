@@ -1,199 +1,226 @@
 import SwiftUI
 
-// 定义奖项枚举
-enum Prize: String {
-    case first = "一等奖"
-    case second = "二等奖"
-    case third = "三等奖"
-    case none = "未中奖"
+// --- 1. 数据模型 ---
+struct Prize: Identifiable, Equatable {
+    var id = UUID()
+    var name: String
+    var count: Int
+    var drawn: Int = 0 // 已抽出的数量
 }
 
-struct ContentView: View {
-    // 设置参数
-    @State private var maxParticipants: Int = 100
-    @State private var firstPrizeRatio: Double = 10
-    @State private var secondPrizeRatio: Double = 10
-    @State private var thirdPrizeRatio: Double = 50
+// --- 2. 抽奖逻辑控制器 ---
+class LotteryManager: ObservableObject {
+    @Published var maxParticipants: Int = 100
+    // 默认奖项，现在支持动态修改了
+    @Published var prizes: [Prize] = [
+        Prize(name: "一等奖", count: 10),
+        Prize(name: "二等奖", count: 10),
+        Prize(name: "三等奖", count: 50)
+    ]
     
-    // 运行状态
-    @State private var prizePool: [Prize] = []
-    @State private var drawnCount: Int = 0
-    @State private var resultMessage: String = "等待抽奖..."
-    @State private var showResultCenter: Bool = false
+    @Published var prizePool: [UUID?] = [] // UUID 代表对应奖项，nil 代表未中奖
+    @Published var drawnCount: Int = 0
+    @Published var currentResult: String = "点击下方按钮开始"
+    @Published var showResultAnim: Bool = false
     
-    // 统计数据 (已出 / 剩余)
-    @State private var firstDrawn: Int = 0
-    @State private var secondDrawn: Int = 0
-    @State private var thirdDrawn: Int = 0
-    
-    var firstTotal: Int { Int(Double(maxParticipants) * (firstPrizeRatio / 100.0)) }
-    var secondTotal: Int { Int(Double(maxParticipants) * (secondPrizeRatio / 100.0)) }
-    var thirdTotal: Int { Int(Double(maxParticipants) * (thirdPrizeRatio / 100.0)) }
-
-    var body: some View {
-        ZStack {
-            // 背景渐变
-            LinearGradient(gradient: Gradient(colors: [Color.blue.opacity(0.2), Color.purple.opacity(0.2)]), startPoint: .topLeading, endPoint: .bottomTrailing)
-                .ignoresSafeArea()
-            
-            VStack(spacing: 20) {
-                // 顶部：参数设置区
-                VStack(spacing: 15) {
-                    HStack {
-                        Text("总人数上限:")
-                        Spacer()
-                        TextField("100", value: $maxParticipants, formatter: NumberFormatter())
-                            .keyboardType(.numberPad)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 80)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                    }
-                    
-                    RatioSlider(title: "一等奖比例 (%)", value: $firstPrizeRatio, color: .red)
-                    RatioSlider(title: "二等奖比例 (%)", value: $secondPrizeRatio, color: .orange)
-                    RatioSlider(title: "三等奖比例 (%)", value: $thirdPrizeRatio, color: .blue)
-                    
-                    Button("重置并初始化奖池") {
-                        setupPool()
-                    }
-                    .padding(.top, 10)
-                    .buttonStyle(.borderedProminent)
-                }
-                .padding()
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal)
-                
-                Spacer()
-                
-                // 中部：抽奖按钮与结果
-                VStack(spacing: 30) {
-                    Text(resultMessage)
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(showResultCenter ? .primary : .secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(height: 60)
-                    
-                    Button(action: drawPrize) {
-                        Text("立即抽奖")
-                            .font(.system(size: 28, weight: .black))
-                            .foregroundColor(.white)
-                            .frame(width: 160, height: 160)
-                            .background(
-                                Circle()
-                                    .fill(LinearGradient(gradient: Gradient(colors: [Color.pink, Color.orange]), startPoint: .topLeading, endPoint: .bottomTrailing))
-                                    .shadow(color: .pink.opacity(0.5), radius: 10, x: 0, y: 10)
-                            )
-                    }
-                    .disabled(prizePool.isEmpty)
-                    .scaleEffect(prizePool.isEmpty ? 0.9 : 1.0)
-                    .animation(.spring(), value: prizePool.isEmpty)
-                }
-                
-                Spacer()
-                
-                // 底部：数据统计看板
-                VStack(spacing: 10) {
-                    Text("抽奖进度: \(drawnCount) / \(maxParticipants)")
-                        .font(.headline)
-                    
-                    Divider()
-                    
-                    HStack(alignment: .top, spacing: 20) {
-                        StatView(title: "一等奖", drawn: firstDrawn, remain: firstTotal - firstDrawn)
-                        StatView(title: "二等奖", drawn: secondDrawn, remain: secondTotal - secondDrawn)
-                        StatView(title: "三等奖", drawn: thirdDrawn, remain: thirdTotal - thirdDrawn)
-                    }
-                }
-                .padding()
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal)
-                .padding(.bottom, 20)
-            }
-        }
-        .onAppear { setupPool() }
-    }
-    
-    // 初始化奖池算法
+    // 初始化/重置奖池
     func setupPool() {
         prizePool.removeAll()
-        firstDrawn = 0; secondDrawn = 0; thirdDrawn = 0; drawnCount = 0
+        drawnCount = 0
         
-        let noneCount = maxParticipants - firstTotal - secondTotal - thirdTotal
+        // 重置所有奖项的已抽出数量
+        for i in 0..<prizes.count { prizes[i].drawn = 0 }
         
-        for _ in 0..<firstTotal { prizePool.append(.first) }
-        for _ in 0..<secondTotal { prizePool.append(.second) }
-        for _ in 0..<thirdTotal { prizePool.append(.third) }
-        for _ in 0..<max(0, noneCount) { prizePool.append(.none) }
+        var totalPrizes = 0
+        // 将奖项放入奖池
+        for prize in prizes {
+            for _ in 0..<prize.count {
+                prizePool.append(prize.id)
+            }
+            totalPrizes += prize.count
+        }
         
-        prizePool.shuffle() // 核心：打乱数组保证概率随机
-        resultMessage = "奖池已就绪，等待抽奖..."
-        showResultCenter = false
+        // 计算未中奖的数量并放入奖池
+        let noneCount = maxParticipants - totalPrizes
+        for _ in 0..<max(0, noneCount) {
+            prizePool.append(nil)
+        }
+        
+        prizePool.shuffle() // 核心打乱逻辑
+        currentResult = "奖池已更新，等待抽奖..."
+        showResultAnim = false
     }
     
     // 抽奖动作
     func drawPrize() {
         guard !prizePool.isEmpty else {
-            resultMessage = "活动已结束！"
+            currentResult = "活动已结束！"
             return
         }
         
-        // 增加动效反馈
-        withAnimation(.easeInOut(duration: 0.2)) {
-            showResultCenter = true
-        }
+        // 触发 UI 动效
+        withAnimation(.easeInOut(duration: 0.15)) { showResultAnim = true }
         
-        let result = prizePool.removeLast() // 弹出最后一个元素
+        let drawnId = prizePool.removeLast()
         drawnCount += 1
         
-        switch result {
-        case .first:
-            firstDrawn += 1
-            resultMessage = "🎉 恭喜您，获得了一等奖！"
-        case .second:
-            secondDrawn += 1
-            resultMessage = "✨ 恭喜您，获得了二等奖！"
-        case .third:
-            thirdDrawn += 1
-            resultMessage = "🎈 恭喜您，获得了三等奖！"
-        case .none:
-            resultMessage = "🥺 很遗憾，本次未中奖"
+        if let id = drawnId, let index = prizes.firstIndex(where: { $0.id == id }) {
+            prizes[index].drawn += 1
+            currentResult = "🎉 恭喜获得：\(prizes[index].name)！"
+        } else {
+            currentResult = "🥺 很遗憾，本次未中奖"
         }
     }
 }
 
-// 辅助 UI 组件：比例滑动条
-struct RatioSlider: View {
-    var title: String
-    @Binding var value: Double
-    var color: Color
+// --- 3. 主界面 ---
+struct ContentView: View {
+    @StateObject private var manager = LotteryManager()
+    @State private var showSettings = false
+    
+    // 适配动态数据的网格布局
+    let columns = [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())]
     
     var body: some View {
-        HStack {
-            Text(title)
-                .font(.subheadline)
-            Spacer()
-            Text("\(Int(value))%")
-                .font(.subheadline)
-                .bold()
-                .foregroundColor(color)
+        NavigationView {
+            ZStack {
+                // 背景
+                LinearGradient(gradient: Gradient(colors: [Color.blue.opacity(0.15), Color.purple.opacity(0.15)]), startPoint: .top, endPoint: .bottom)
+                    .ignoresSafeArea()
+                
+                VStack {
+                    Spacer()
+                    
+                    // 中部：抽奖结果与按钮
+                    VStack(spacing: 40) {
+                        Text(manager.currentResult)
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(manager.showResultAnim ? .primary : .secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(height: 80)
+                            .padding(.horizontal)
+                        
+                        Button(action: manager.drawPrize) {
+                            Text("抽 奖")
+                                .font(.system(size: 36, weight: .black))
+                                .foregroundColor(.white)
+                                .frame(width: 180, height: 180)
+                                .background(
+                                    Circle()
+                                        .fill(LinearGradient(gradient: Gradient(colors: [Color.pink, Color.orange]), startPoint: .topLeading, endPoint: .bottomTrailing))
+                                        .shadow(color: .pink.opacity(0.4), radius: 15, x: 0, y: 15)
+                                )
+                        }
+                        .disabled(manager.prizePool.isEmpty)
+                        .scaleEffect(manager.prizePool.isEmpty ? 0.9 : 1.0)
+                        .animation(.spring(), value: manager.prizePool.isEmpty)
+                    }
+                    
+                    Spacer()
+                    
+                    // 底部：动态统计看板
+                    VStack(spacing: 15) {
+                        Text("抽奖进度: \(manager.drawnCount) / \(manager.maxParticipants)")
+                            .font(.headline)
+                        
+                        Divider()
+                        
+                        ScrollView {
+                            LazyVGrid(columns: columns, spacing: 15) {
+                                ForEach(manager.prizes) { prize in
+                                    VStack(spacing: 4) {
+                                        Text(prize.name).font(.subheadline).bold().lineLimit(1)
+                                        Text("已出: \(prize.drawn)").font(.caption).foregroundColor(.secondary)
+                                        let remain = prize.count - prize.drawn
+                                        Text("剩余: \(remain)").font(.caption).foregroundColor(remain == 0 ? .red : .green)
+                                    }
+                                }
+                            }
+                        }
+                        .frame(maxHeight: 150) // 限制高度，奖项过多时可滑动
+                    }
+                    .padding()
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .padding()
+                }
+            }
+            .navigationTitle("幸运抽奖")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // 右上角齿轮图标
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundColor(.primary)
+                    }
+                }
+            }
+            // 弹出设置页面
+            .sheet(isPresented: $showSettings) {
+                SettingsView(manager: manager)
+            }
+            .onAppear { manager.setupPool() }
         }
-        Slider(value: $value, in: 0...100, step: 1)
-            .accentColor(color)
+        // 确保在 iPad 上也只显示单列视图
+        .navigationViewStyle(.stack) 
     }
 }
 
-// 辅助 UI 组件：统计小块
-struct StatView: View {
-    var title: String
-    var drawn: Int
-    var remain: Int
+// --- 4. 设置界面 ---
+struct SettingsView: View {
+    @Environment(\.presentationMode) var presentationMode
+    @ObservedObject var manager: LotteryManager
     
     var body: some View {
-        VStack(spacing: 5) {
-            Text(title).font(.subheadline).bold()
-            Text("已出: \(drawn)").font(.caption).foregroundColor(.secondary)
-            Text("剩余: \(remain)").font(.caption).foregroundColor(remain == 0 ? .red : .green)
+        NavigationView {
+            Form {
+                Section(header: Text("基础设置"), footer: Text("修改参数后，关闭当前页面将自动重置抽奖进度。")) {
+                    HStack {
+                        Text("总人数上限")
+                        Spacer()
+                        TextField("例如: 100", value: $manager.maxParticipants, formatter: NumberFormatter())
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
+                
+                Section(header: Text("奖项管理 (左滑可删除)")) {
+                    // 动态绑定奖项数组，支持修改名称和数量
+                    ForEach($manager.prizes) { $prize in
+                        HStack {
+                            TextField("奖项名称", text: $prize.name)
+                            Divider()
+                            TextField("数量", value: $prize.count, formatter: NumberFormatter())
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 60)
+                            Text("人")
+                        }
+                    }
+                    .onDelete { indexSet in
+                        manager.prizes.remove(atOffsets: indexSet)
+                    }
+                    
+                    // 新增奖项按钮
+                    Button(action: {
+                        manager.prizes.append(Prize(name: "新增奖项", count: 1))
+                    }) {
+                        Label("添加新奖项", systemImage: "plus.circle.fill")
+                    }
+                }
+            }
+            .navigationTitle("抽奖设置")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("完成") {
+                        // 关闭设置时，重新初始化奖池
+                        manager.setupPool()
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
         }
     }
 }
