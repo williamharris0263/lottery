@@ -275,6 +275,9 @@ struct ContentView: View {
                     }
                     .padding(.bottom, 30)
                 }
+                if manager.flashTrigger {
+                    Color.white.ignoresSafeArea().transition(.opacity)
+                }
             }
             .navigationBarHidden(true)
             .overlay(
