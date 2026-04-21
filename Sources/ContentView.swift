@@ -8,9 +8,7 @@ class SoundManager {
     static let instance = SoundManager()
     var player: AVAudioPlayer?
 
-    // 播放系统内置音效或自定义文件
     func playSound(named: String, systemSoundID: UInt32) {
-        // 首先尝试播放 Sources 文件夹下的自定义 MP3
         if let path = Bundle.main.path(forResource: named, ofType: "mp3") {
             let url = URL(fileURLWithPath: path)
             do {
@@ -21,7 +19,6 @@ class SoundManager {
                 print("音频播放失败")
             }
         }
-        // 如果没有自定义文件，则播放 iOS 系统内置音效 (作为兜底)
         AudioServicesPlaySystemSound(systemSoundID)
     }
 }
@@ -49,7 +46,10 @@ class LotteryManager: ObservableObject {
     @Published var activePrizes: [Prize] = []
     @Published var prizePool: [UUID?] = []
     @Published var drawnCount: Int = 0
-    @Published var currentResult: String = "点击开启好运"
+    
+    // 【修复核心1】：将单字符串拆分为标题和正文，彻底告别换行符带来的排版错乱
+    @Published var resultTitle: String = " " 
+    @Published var resultMessage: String = "点击开启好运"
     
     @Published var isDrawing: Bool = false
     @Published var drawStatus: DrawStatus = .idle
@@ -67,14 +67,16 @@ class LotteryManager: ObservableObject {
     func draw() {
         guard !prizePool.isEmpty, !isDrawing else { return }
         
-        // 1. 触发点击音效 & 震动
-        SoundManager.instance.playSound(named: "draw", systemSoundID: 1104) // 1104 是系统切分音
+        SoundManager.instance.playSound(named: "draw", systemSoundID: 1104) 
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         isDrawing = true
         drawStatus = .drawing
         showConfetti = false
-        currentResult = "凝聚好运中..." 
+        
+        // 抽取时清空副标题，只留正文
+        resultTitle = " " 
+        resultMessage = "凝聚好运中..." 
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             self.processDrawResult()
@@ -87,21 +89,21 @@ class LotteryManager: ObservableObject {
         
         if let id = drawnId, let index = activePrizes.firstIndex(where: { $0.id == id }) {
             activePrizes[index].drawn += 1
-            currentResult = "\(greetings.randomElement() ?? "")\n获得了【\(activePrizes[index].name)】"
+            
+            // 分别赋值标题和正文
+            resultTitle = greetings.randomElement() ?? "🎉"
+            resultMessage = "获得了【\(activePrizes[index].name)】"
             
             if index == 0 { drawStatus = .wonBig } else { drawStatus = .wonSmall }
-            
-            // 2. 播放中奖音效 (系统 ID 1022 是很清脆的提示音)
             SoundManager.instance.playSound(named: "win", systemSoundID: 1022)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            
             showConfetti = true
             confettiCounter += 1
-        } else {
-            currentResult = "\(sadMessages.randomElement() ?? "未中奖")"
-            drawStatus = .missed
             
-            // 3. 播放未中奖音效 (系统 ID 1053 是一个闷音)
+        } else {
+            resultTitle = " " // 未中奖时隐藏标题（用空格占位防止高度塌陷）
+            resultMessage = "\(sadMessages.randomElement() ?? "未中奖")"
+            drawStatus = .missed
             SoundManager.instance.playSound(named: "fail", systemSoundID: 1053)
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
@@ -110,7 +112,6 @@ class LotteryManager: ObservableObject {
         saveData()
     }
 
-    // --- 数据管理逻辑 (同上版，保持记忆配置功能) ---
     func resetToNewRound() {
         self.activeMaxParticipants = configMaxParticipants
         self.activePrizes = configPrizes.map { Prize(id: $0.id, name: $0.name, count: $0.count, drawn: 0) }
@@ -118,6 +119,10 @@ class LotteryManager: ObservableObject {
         drawnCount = 0
         drawStatus = .idle
         showConfetti = false
+        
+        resultTitle = " "
+        resultMessage = "奖池已重置"
+        
         var totalPrizeCount = 0
         for prize in activePrizes {
             for _ in 0..<prize.count { prizePool.append(prize.id) }
@@ -125,7 +130,6 @@ class LotteryManager: ObservableObject {
         }
         for _ in 0..<max(0, activeMaxParticipants - totalPrizeCount) { prizePool.append(nil) }
         prizePool.shuffle()
-        currentResult = "奖池已重置"
         saveData()
     }
 
@@ -212,19 +216,27 @@ struct ContentView: View {
                 
                 VStack {
                     Spacer()
-                    VStack(spacing: 60) {
-                        Text(manager.currentResult)
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.center)
-                            .lineLimit(3)
-                            .minimumScaleFactor(0.4)
-                            .frame(maxWidth: .infinity, minHeight: 160)
-                            .padding(.horizontal, 30)
-                            .shadow(color: manager.drawStatus == .wonBig ? .yellow.opacity(0.5) : .clear, radius: 20)
-                            .blur(radius: manager.isDrawing ? 10 : 0)
-                            .scaleEffect(manager.isDrawing ? 0.9 : (manager.drawStatus == .wonBig ? 1.15 : 1.0))
-                            .animation(manager.isDrawing ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .spring(response: 0.4, dampingFraction: 0.6), value: manager.isDrawing)
+                    VStack(spacing: 50) { // 稍微缩小这里的间距
+                        
+                        // 【修复核心2】：分离标题与正文，并锁定死外层高度，彻底杜绝图层滑动与边缘裁剪
+                        VStack(spacing: 12) {
+                            Text(manager.resultTitle)
+                                .font(.title2).bold()
+                                .foregroundColor(.white.opacity(0.9))
+                            
+                            Text(manager.resultMessage)
+                                .font(.system(size: 40, weight: .heavy, design: .rounded))
+                                .foregroundColor(.white)
+                                .lineLimit(1) // 锁定单行
+                                .minimumScaleFactor(0.4) // 自动缩放
+                        }
+                        .frame(height: 120) // 绝对锁死高度！再也不会上下乱跳了
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 20)
+                        .shadow(color: manager.drawStatus == .wonBig ? .yellow.opacity(0.5) : .clear, radius: 20)
+                        .blur(radius: manager.isDrawing ? 10 : 0)
+                        .scaleEffect(manager.isDrawing ? 0.9 : (manager.drawStatus == .wonBig ? 1.15 : 1.0))
+                        .animation(manager.isDrawing ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .spring(response: 0.4, dampingFraction: 0.6), value: manager.isDrawing)
                         
                         Button(action: manager.draw) {
                             Circle()
