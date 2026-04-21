@@ -13,7 +13,6 @@ enum DrawStatus {
     case idle, drawing, wonBig, wonSmall, missed
 }
 
-// 独立的粒子数据结构
 struct Particle: Identifiable {
     let id = UUID()
     var x: CGFloat
@@ -33,8 +32,11 @@ class LotteryManager: ObservableObject {
     
     @Published var isDrawing: Bool = false
     @Published var drawStatus: DrawStatus = .idle
-    @Published var flashTrigger: Bool = false // 爆闪触发器
-    @Published var showConfetti: Bool = false // 礼花触发器
+    @Published var flashTrigger: Bool = false
+    @Published var showConfetti: Bool = false
+    
+    // 【修复2】：增加专门的计数器作为礼花的唯一标识，防止状态刷新误触发
+    @Published var confettiCounter: Int = 0 
     
     @Published var configMaxParticipants: Int = 100
     @Published var configPrizes: [Prize] = [
@@ -44,7 +46,6 @@ class LotteryManager: ObservableObject {
     private let greetings = ["✨ 天呐！", "🎉 运气爆表！", "🔥 哇塞！", "🎁 太棒了！", "🎊 手气不错！"]
     private let sadMessages = ["差一点就中了", "换个姿势再试", "大奖还在奖池里！", "别灰心，好运在后面", "换个手指再试一次？", "再接再厉哦"]
     
-    // 跑马灯计时器
     private var rouletteTimer: Timer?
 
     init() { loadData() }
@@ -76,27 +77,24 @@ class LotteryManager: ObservableObject {
         drawStatus = .drawing
         showConfetti = false
         
-        // 核心视觉冲击1：老虎机跑马灯效果
         let allNames = activePrizes.map { $0.name } + sadMessages
         rouletteTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
             self.currentResult = allNames.randomElement() ?? "???"
-            UIImpactFeedbackGenerator(style: .light).impactOccurred() // 哒哒哒的震感
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         
-        // 1.5秒后揭晓
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             self.processDrawResult()
         }
     }
     
     private func processDrawResult() {
-        rouletteTimer?.invalidate() // 停止跑马灯
+        rouletteTimer?.invalidate()
         rouletteTimer = nil
         
         let drawnId = prizePool.removeLast()
         drawnCount += 1
         
-        // 核心视觉冲击2：全屏爆闪
         withAnimation(.easeInOut(duration: 0.1)) { flashTrigger = true }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             withAnimation(.easeOut(duration: 0.3)) { self.flashTrigger = false }
@@ -108,7 +106,9 @@ class LotteryManager: ObservableObject {
             
             if index == 0 { drawStatus = .wonBig } else { drawStatus = .wonSmall }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
-            showConfetti = true // 喷射礼花
+            
+            showConfetti = true
+            confettiCounter += 1 // 【修复2】：真正开出奖时，才更新礼花标识
             
         } else {
             currentResult = "\(sadMessages.randomElement() ?? "未中奖")"
@@ -156,17 +156,16 @@ struct ConfettiView: View {
                 for _ in 0..<40 {
                     let p = Particle(
                         x: CGFloat.random(in: 0...geo.size.width),
-                        y: -50, // 从屏幕顶部上方开始下落
+                        y: -50,
                         rotation: Double.random(in: 0...360),
                         scale: CGFloat.random(in: 0.5...1.5),
                         emoji: emojis.randomElement()!
                     )
                     particles.append(p)
                 }
-                // 触发物理坠落动效
                 withAnimation(.timingCurve(0.25, 1, 0.5, 1, duration: 2.5)) {
                     for i in 0..<particles.count {
-                        particles[i].y = geo.size.height + 100 // 落到屏幕底部外
+                        particles[i].y = geo.size.height + 100
                         particles[i].rotation += Double.random(in: 180...720)
                     }
                 }
@@ -183,13 +182,14 @@ struct ContentView: View {
     @State private var showStats = false
     @State private var breathingScale: CGFloat = 1.0
     
+    // 【修复3】：彻底回调之前的优雅配色，仅在特殊状态下微调透明度和叠加颜色
     var backgroundColors: [Color] {
         switch manager.drawStatus {
-        case .idle: return [Color.blue.opacity(0.3), Color.purple.opacity(0.4)]
-        case .drawing: return [Color.black.opacity(0.8), Color.purple.opacity(0.6)] // 抽取时变暗压抑
-        case .wonBig: return [Color.yellow, Color.orange, Color.red] // 大奖高饱和
-        case .wonSmall: return [Color.pink.opacity(0.8), Color.orange.opacity(0.8)]
-        case .missed: return [Color.gray.opacity(0.8), Color.black.opacity(0.6)] // 没中奖冷色灰暗
+        case .idle: return [Color.blue.opacity(0.15), Color.purple.opacity(0.15)]
+        case .drawing: return [Color.black.opacity(0.6), Color.purple.opacity(0.4)]
+        case .wonBig: return [Color.orange.opacity(0.6), Color.yellow.opacity(0.6)]
+        case .wonSmall: return [Color.pink.opacity(0.4), Color.orange.opacity(0.4)]
+        case .missed: return [Color.gray.opacity(0.3), Color.blue.opacity(0.2)]
         }
     }
     
@@ -200,47 +200,50 @@ struct ContentView: View {
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 0.8), value: manager.drawStatus)
                 
-                // 礼花层
                 if manager.showConfetti {
-                    ConfettiView().id(UUID()) // 每次为true时重新生成
+                    // 【修复2】：绑定计数器，展开统计不再重复下落
+                    ConfettiView().id(manager.confettiCounter) 
                 }
                 
                 VStack {
                     Spacer()
                     
                     VStack(spacing: 50) {
-                        // 结果文字区域：加入巨大的霓虹发光阴影
+                        // 【修复1】：固定基础字号，利用 scaleEffect 放大，并将高度设为 minHeight 留出安全区，杜绝文字裁剪
                         Text(manager.currentResult)
-                            .font(.system(size: manager.drawStatus == .wonBig ? 42 : (manager.isDrawing ? 28 : 32), weight: .black, design: .rounded))
-                            .foregroundColor(manager.drawStatus == .missed ? .white.opacity(0.5) : .white)
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(.white)
                             .multilineTextAlignment(.center)
-                            .frame(height: 120)
-                            .shadow(color: manager.drawStatus == .wonBig ? .yellow : .clear, radius: 20, x: 0, y: 0)
-                            .scaleEffect(manager.drawStatus == .wonBig ? 1.1 : 1.0)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.5), value: manager.drawStatus)
+                            .frame(minHeight: 140, alignment: .center)
+                            .scaleEffect(manager.drawStatus == .wonBig ? 1.2 : (manager.isDrawing ? 0.9 : 1.0))
+                            .shadow(color: manager.drawStatus == .wonBig ? .yellow : .clear, radius: 15, x: 0, y: 0)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: manager.drawStatus)
                         
-                        // 抽奖按钮
+                        // 【修复3】：回调经典的粉橙渐变按钮
                         Button(action: manager.draw) {
                             Circle()
-                                .fill(LinearGradient(colors: manager.isDrawing ? [.gray, .darkGray] : [.pink, .yellow], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .fill(LinearGradient(colors: manager.isDrawing ? [.gray, .init(white: 0.4)] : [.pink, .orange], startPoint: .topLeading, endPoint: .bottomTrailing))
                                 .frame(width: 200, height: 200)
                                 .overlay(
                                     Text(manager.isDrawing ? "锁定中" : "抽 奖")
                                         .font(.system(size: 40, weight: .black))
                                         .foregroundColor(.white)
                                 )
-                                // 待机时的霓虹呼吸灯效
-                                .shadow(color: manager.isDrawing ? .clear : .pink.opacity(0.8), radius: manager.isDrawing ? 0 : 30 * breathingScale, y: 10)
+                                .shadow(color: manager.isDrawing ? .clear : .pink.opacity(0.6), radius: manager.isDrawing ? 0 : 25 * breathingScale, y: 10)
                         }
                         .disabled(manager.prizePool.isEmpty || manager.isDrawing)
                         .scaleEffect(manager.isDrawing ? 0.85 : breathingScale)
                         .animation(manager.isDrawing ? .easeIn(duration: 0.1) : .easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: breathingScale)
-                        .onAppear { breathingScale = 1.05 }
+                        .onAppear {
+                            // 【修复4】：延迟 0.1 秒启动呼吸动画，等待系统将按钮居中排版完毕，杜绝从左上角飞出的 Bug
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                breathingScale = 1.05
+                            }
+                        }
                     }
                     
                     Spacer()
                     
-                    // 隐藏统计面板 (逻辑同前版)
                     VStack {
                         Button(showStats ? "点击隐藏后台数据" : "⚙️ 展开实时数据") {
                             withAnimation(.spring()) { showStats.toggle() }
@@ -257,7 +260,7 @@ struct ContentView: View {
                                             Text("\(remain)").font(.title2).bold().foregroundColor(remain == 0 ? .red : .white)
                                         }
                                         .frame(width: 80).padding(.vertical, 10)
-                                        .background(Color.black.opacity(0.4)).cornerRadius(12)
+                                        .background(Color.black.opacity(0.3)).cornerRadius(12) // 透明度调低，更显高级
                                     }
                                 }
                             }
@@ -266,20 +269,15 @@ struct ContentView: View {
                     .padding(.bottom, 20)
                 }
                 
-                // 视觉炸裂的最强手段：全屏爆闪层放置在最顶层
                 if manager.flashTrigger {
-                    Color.white.ignoresSafeArea()
-                        .transition(.opacity)
+                    Color.white.ignoresSafeArea().transition(.opacity)
                 }
             }
             .navigationBarHidden(true)
-            // 将设置按钮挪到一个隐蔽的角落，保证画面纯净
             .overlay(
                 Button(action: { showSettings = true }) {
                     Image(systemName: "slider.horizontal.3")
-                        .font(.title2)
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding()
+                        .font(.title2).foregroundColor(.white.opacity(0.5)).padding()
                 }
                 , alignment: .topTrailing
             )
@@ -289,10 +287,7 @@ struct ContentView: View {
     }
 }
 
-// 定义一个颜色扩展，方便取暗灰色
-extension Color { static let darkGray = Color(white: 0.3) }
-
-// --- 5. 设置界面 (保持不变，省略了里面的具体内容以节省篇幅，直接用上一版即可) ---
+// --- 5. 设置界面 ---
 struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @ObservedObject var manager: LotteryManager
