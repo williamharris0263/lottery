@@ -1,6 +1,6 @@
 name: LotteryApp
 options:
-  bundleIdPrefix: com.oidutsadam.v9
+  bundleIdPrefix: com.oidutsadam.v10
 targets:
   LotteryApp:
     type: application

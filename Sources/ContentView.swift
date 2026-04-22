@@ -8,7 +8,9 @@ class SoundManager {
     static let instance = SoundManager()
     var player: AVAudioPlayer?
 
+    // 播放系统内置音效或自定义 MP3 文件
     func playSound(named: String, systemSoundID: UInt32) {
+        // 首先尝试播放 Sources 文件夹下的自定义 MP3
         if let path = Bundle.main.path(forResource: named, ofType: "mp3") {
             let url = URL(fileURLWithPath: path)
             do {
@@ -19,6 +21,7 @@ class SoundManager {
                 print("音频播放失败")
             }
         }
+        // 如果没有自定义文件，则播放 iOS 系统内置音效 (作为兜底)
         AudioServicesPlaySystemSound(systemSoundID)
     }
 }
@@ -47,15 +50,18 @@ class LotteryManager: ObservableObject {
     @Published var prizePool: [UUID?] = []
     @Published var drawnCount: Int = 0
     
-    // 【修复核心1】：将单字符串拆分为标题和正文，彻底告别换行符带来的排版错乱
+    // 【修复】：彻底解决第一行遮挡问题，挑高物理高度并给 Emoji 留出缓冲 Padding
     @Published var resultTitle: String = " " 
     @Published var resultMessage: String = "点击开启好运"
     
     @Published var isDrawing: Bool = false
     @Published var drawStatus: DrawStatus = .idle
     @Published var showConfetti: Bool = false
+    
+    // 【修复】：展开/隐藏数据不会导致礼花意外下落。使用专用的计数器作为 ID。
     @Published var confettiCounter: Int = 0 
     
+    // 配置态数据 (保证重启 App 不会丢失)
     @Published var configMaxParticipants: Int = 100
     @Published var configPrizes: [Prize] = []
 
@@ -64,20 +70,21 @@ class LotteryManager: ObservableObject {
 
     init() { loadData() }
     
+    // 带有音效、触觉和高级模糊动效的抽奖交互
     func draw() {
         guard !prizePool.isEmpty, !isDrawing else { return }
         
-        SoundManager.instance.playSound(named: "draw", systemSoundID: 1104) 
+        // 1. 触发点击音效 & 震动
+        SoundManager.instance.playSound(named: "draw", systemSoundID: 1104) // 1104 是系统切分音
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         
         isDrawing = true
         drawStatus = .drawing
         showConfetti = false
+        resultTitle = "凝聚中..." 
+        resultMessage = "凝聚中..." 
         
-        // 抽取时清空副标题，只留正文
-        resultTitle = " " 
-        resultMessage = "凝聚好运中..." 
-        
+        // 1.5秒的高斯模糊凝聚期
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
             self.processDrawResult()
         }
@@ -95,15 +102,21 @@ class LotteryManager: ObservableObject {
             resultMessage = "获得了【\(activePrizes[index].name)】"
             
             if index == 0 { drawStatus = .wonBig } else { drawStatus = .wonSmall }
+            
+            // 2. 播放清脆提示音和成功震动
             SoundManager.instance.playSound(named: "win", systemSoundID: 1022)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            
+            // 3. 全屏喷射礼花
             showConfetti = true
-            confettiCounter += 1
+            confettiCounter += 1 // 【修复】：真正开出奖时，才更新礼花标识
             
         } else {
-            resultTitle = " " // 未中奖时隐藏标题（用空格占位防止高度塌陷）
+            resultTitle = " " // 未中奖时隐藏第一行
             resultMessage = "\(sadMessages.randomElement() ?? "未中奖")"
             drawStatus = .missed
+            
+            // 4. 播放沉闷音效和错误震动
             SoundManager.instance.playSound(named: "fail", systemSoundID: 1053)
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         }
@@ -112,6 +125,7 @@ class LotteryManager: ObservableObject {
         saveData()
     }
 
+    // --- 数据与配置永久存储 ---
     func resetToNewRound() {
         self.activeMaxParticipants = configMaxParticipants
         self.activePrizes = configPrizes.map { Prize(id: $0.id, name: $0.name, count: $0.count, drawn: 0) }
@@ -119,10 +133,8 @@ class LotteryManager: ObservableObject {
         drawnCount = 0
         drawStatus = .idle
         showConfetti = false
-        
         resultTitle = " "
         resultMessage = "奖池已重置"
-        
         var totalPrizeCount = 0
         for prize in activePrizes {
             for _ in 0..<prize.count { prizePool.append(prize.id) }
@@ -146,13 +158,17 @@ class LotteryManager: ObservableObject {
     }
 
     private func loadData() {
+        // 读取配置态，重启 App 不丢失配置
         let savedConfigMax = UserDefaults.standard.integer(forKey: "L_Config_Max")
         if savedConfigMax > 0 { configMaxParticipants = savedConfigMax }
         if let data = UserDefaults.standard.data(forKey: "L_Config_Prizes"), let config = try? JSONDecoder().decode([Prize].self, from: data) {
             configPrizes = config
         } else {
-            configPrizes = [Prize(name: "一等奖", count: 10), Prize(name: "二等奖", count: 10), Prize(name: "三等奖", count: 50)]
+            // 第一次打开 App 的默认配置
+            configPrizes = [Prize(name: "一等奖", count: 1), Prize(name: "二等奖", count: 3), Prize(name: "三等奖", count: 10)]
         }
+        
+        // 读取运行态
         let savedMax = UserDefaults.standard.integer(forKey: "L_Max")
         if savedMax == 0 { resetToNewRound(); return }
         activeMaxParticipants = savedMax
@@ -195,6 +211,7 @@ struct ContentView: View {
     @State private var showStats = false
     @State private var breathingScale: CGFloat = 1.0
     
+    // 莫兰迪高级流光配色
     var backgroundColors: [Color] {
         switch manager.drawStatus {
         case .idle: return [Color(red: 0.1, green: 0.2, blue: 0.5), Color(red: 0.3, green: 0.1, blue: 0.4)]
@@ -208,40 +225,46 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             ZStack {
+                // 背景
                 LinearGradient(gradient: Gradient(colors: backgroundColors), startPoint: .topLeading, endPoint: .bottomTrailing)
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 1.2), value: manager.drawStatus)
                 
-                if manager.showConfetti { ConfettiView().id(manager.confettiCounter) }
+                if manager.showConfetti {
+                    // 【修复】：展开/隐藏数据不再触发礼花下落。将 ID 绑定到计数器上。
+                    ConfettiView().id(manager.confettiCounter) 
+                }
                 
                 VStack {
                     Spacer()
                     VStack(spacing: 50) { // 稍微缩小这里的间距
-                        // 【修复核心2】：分离标题与正文，并锁定死外层高度，彻底杜绝图层滑动与边缘裁剪
-                        // 【修复】：改用 minHeight 弹性高度，并增加内部上下 padding 缓冲带，彻底防止 Emoji 和放大时的顶部裁剪
+                        
+                        // 【修复核心】：挑高物理高度天花板，加入全面弹性缩放和安全 Padding，保护 Emoji 和放大时的文字边缘。
                         VStack(spacing: 16) {
                             Text(manager.resultTitle)
                                 .font(.system(size: 32, weight: .bold, design: .rounded))
                                 .foregroundColor(.white.opacity(0.9))
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.5)
-                                .padding(.top, 15) 
+                                .minimumScaleFactor(0.5) // 第一行也加入弹性缩放防右侧裁剪
+                                .padding(.top, 15) // 【关键】：顶部留出安全区，保护 Emoji 的“高帽”
                             
                             Text(manager.resultMessage)
                                 .font(.system(size: 42, weight: .heavy, design: .rounded))
                                 .foregroundColor(.white)
                                 .lineLimit(1) 
-                                .minimumScaleFactor(0.4) 
-                                .padding(.bottom, 10) 
+                                .minimumScaleFactor(0.4) // 第二行加入弹性缩放防右侧裁剪
+                                .padding(.bottom, 10)
                         }
-                        .frame(minHeight: 180) 
+                        .frame(minHeight: 180) // 【关键】：改用 minHeight，允许容器向上撑开，杜绝裁剪
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 20)
                         .shadow(color: manager.drawStatus == .wonBig ? .yellow.opacity(0.5) : .clear, radius: 20)
+                        // 高斯模糊聚焦与流光瞬间揭晓动效
                         .blur(radius: manager.isDrawing ? 10 : 0)
                         .scaleEffect(manager.isDrawing ? 0.9 : (manager.drawStatus == .wonBig ? 1.15 : 1.0))
                         .animation(manager.isDrawing ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .spring(response: 0.4, dampingFraction: 0.6), value: manager.isDrawing)
                         
+                        // 优雅的莫兰迪渐变呼吸按钮
                         Button(action: manager.draw) {
                             Circle()
                                 .fill(LinearGradient(colors: manager.isDrawing ? [Color.white.opacity(0.2), Color.white.opacity(0.1)] : [Color(red: 0.9, green: 0.4, blue: 0.5), Color(red: 0.9, green: 0.6, blue: 0.3)], startPoint: .topLeading, endPoint: .bottomTrailing))
@@ -251,16 +274,20 @@ struct ContentView: View {
                                         .font(.system(size: 36, weight: .black))
                                         .foregroundColor(manager.isDrawing ? .white.opacity(0.5) : .white)
                                 )
+                                // 发光阴影
                                 .shadow(color: manager.isDrawing ? .clear : Color.pink.opacity(0.5), radius: manager.isDrawing ? 0 : 20 * breathingScale, y: 10)
                         }
                         .disabled(manager.prizePool.isEmpty || manager.isDrawing)
                         .scaleEffect(manager.isDrawing ? 0.85 : (breathingScale))
                         .animation(manager.isDrawing ? .easeIn(duration: 0.1) : .easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: breathingScale)
                         .onAppear {
+                            // 【修复】：彻底解决启动飞入Bug。延迟0.5秒让系统布局排版完毕后再启动呼吸动画。
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { breathingScale = 1.04 }
                         }
                     }
                     Spacer()
+                    
+                    // 下方统计面板居中和配色重绘 (采用高级 Ultra Thin Material 毛玻璃材质)
                     VStack {
                         Button(action: { withAnimation(.spring()) { showStats.toggle() } }) {
                             Text(showStats ? "隐藏实时数据" : "⚙️ 展开实时数据")
@@ -270,6 +297,7 @@ struct ContentView: View {
                         }
                         if showStats {
                             ScrollView(.horizontal, showsIndicators: false) {
+                                // 使用用 .frame(maxWidth: .infinity) 配合 Spacer 强制居中
                                 HStack(spacing: 12) {
                                     Spacer(minLength: 0)
                                     ForEach(manager.activePrizes) { prize in
@@ -279,18 +307,21 @@ struct ContentView: View {
                                             Text("\(remain)").font(.title3).bold().foregroundColor(remain == 0 ? .red.opacity(0.8) : .white)
                                         }
                                         .frame(width: 85).padding(.vertical, 12)
-                                        .background(.ultraThinMaterial)
+                                        .background(.ultraThinMaterial) // 高级莫兰迪毛玻璃质感
                                         .cornerRadius(16)
                                     }
                                     Spacer(minLength: 0)
                                 }
-                                .frame(minWidth: UIScreen.main.bounds.width - 40)
+                                .frame(minWidth: UIScreen.main.bounds.width - 40) // 确保撑满宽度实现居中
                             }
                             .padding(.top, 10)
                         }
                     }
                     .padding(.bottom, 30)
                 }
+                
+                // 彻底删除 flashTrigger 的代码残留，避免编译报错和视觉刺眼
+                
             }
             .navigationBarHidden(true)
             .overlay(
@@ -301,11 +332,11 @@ struct ContentView: View {
             )
             .sheet(isPresented: $showSettings) { SettingsView(manager: manager) }
         }
-        .navigationViewStyle(.stack)
+        .navigationViewStyle(.stack) // 确保 iPad 正常单列显示
     }
 }
 
-// --- 6. 设置界面 ---
+// --- 6. 设置界面 (步进器加步Stepper加步，手感更佳) ---
 struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @ObservedObject var manager: LotteryManager
@@ -325,6 +356,7 @@ struct SettingsView: View {
                         HStack {
                             TextField("奖项名", text: $prize.name)
                             Spacer()
+                            // 摒弃繁琐难点的输入框，换用自带步进器 (Stepper)，手感极佳且支持长按快速增减
                             Stepper(value: $prize.count, in: 0...1000) {
                                 Text("\(prize.count) 个").font(.system(.body, design: .monospaced)).foregroundColor(.secondary)
                             }.frame(maxWidth: 160)
@@ -337,10 +369,12 @@ struct SettingsView: View {
             .navigationTitle("后台配置").navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
+                    // 点击完成，静默保存配置到手机，保证下次启动依然存在
                     Button("完成") { manager.saveConfig(); presentationMode.wrappedValue.dismiss() }
                 }
             }
             .alert("确认重置", isPresented: $showConfirmReset) {
+                // 重置时也要保存最新配置
                 Button("确定重置", role: .destructive) { manager.saveConfig(); manager.resetToNewRound(); presentationMode.wrappedValue.dismiss() }
                 Button("取消", role: .cancel) {}
             }
