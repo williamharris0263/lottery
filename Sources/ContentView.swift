@@ -218,20 +218,23 @@ struct ContentView: View {
                     Spacer()
                     VStack(spacing: 50) { // 稍微缩小这里的间距
                         // 【修复核心2】：分离标题与正文，并锁定死外层高度，彻底杜绝图层滑动与边缘裁剪
+                        // 【修复】：改用 minHeight 弹性高度，并增加内部上下 padding 缓冲带，彻底防止 Emoji 和放大时的顶部裁剪
                         VStack(spacing: 16) {
                             Text(manager.resultTitle)
                                 .font(.system(size: 32, weight: .bold, design: .rounded))
                                 .foregroundColor(.white.opacity(0.9))
                                 .lineLimit(1)
-                                .minimumScaleFactor(0.5) // 第一行也加入防裁剪的自动缩放
+                                .minimumScaleFactor(0.5)
+                                .padding(.top, 15) 
                             
                             Text(manager.resultMessage)
                                 .font(.system(size: 42, weight: .heavy, design: .rounded))
                                 .foregroundColor(.white)
                                 .lineLimit(1) 
                                 .minimumScaleFactor(0.4) 
+                                .padding(.bottom, 10) 
                         }
-                        .frame(height: 180)
+                        .frame(minHeight: 180) 
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 20)
                         .shadow(color: manager.drawStatus == .wonBig ? .yellow.opacity(0.5) : .clear, radius: 20)

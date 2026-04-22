@@ -1,6 +1,6 @@
 name: LotteryApp
 options:
-  bundleIdPrefix: com.oidutsadam.v8
+  bundleIdPrefix: com.oidutsadam.v9
 targets:
   LotteryApp:
     type: application
@@ -14,5 +14,5 @@ targets:
         MARKETING_VERSION: 1.0
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        
+        INFOPLIST_KEY_CFBundleDisplayName: "Serendipity"
         INFOPLIST_KEY_CFBundleIconFile: "Icon.png"
