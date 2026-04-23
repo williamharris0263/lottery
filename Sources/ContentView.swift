@@ -144,7 +144,7 @@ class LotteryManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "L_Config_Prizes"), let config = try? JSONDecoder().decode([Prize].self, from: data) {
             configPrizes = config
         } else {
-            configPrizes = [Prize(name: "一等奖", count: 10), Prize(name: "二等奖", count: 10), Prize(name: "三等奖", count: 50)]
+            configPrizes = [Prize(name: "一等奖", count: 1), Prize(name: "二等奖", count: 3), Prize(name: "三等奖", count: 10)]
         }
         let savedMax = UserDefaults.standard.integer(forKey: "L_Max")
         if savedMax == 0 { resetToNewRound(); return }
@@ -209,29 +209,32 @@ struct ContentView: View {
                 
                 VStack {
                     Spacer()
-                    VStack(spacing: 40) {
+                    VStack(spacing: 30) {
                         
-                        // 【终极方案：逆向缩放】
-                        // 物理基准尺寸设定得极其夸张（40 和 54），撑爆预留空间
-                        VStack(spacing: 20) {
+                        // 【终极文字防切方案】
+                        VStack(spacing: 10) {
                             Text(manager.resultTitle)
                                 .font(.system(size: 40, weight: .bold, design: .rounded)) 
                                 .foregroundColor(.white.opacity(0.9))
                                 .lineLimit(1)
                                 .minimumScaleFactor(0.3)
+                                // 强制系统按照文字绝对理想高度渲染，绝不裁剪！
+                                .fixedSize(horizontal: false, vertical: true) 
+                                // 直接加在 Text 上，撑开内部边界
+                                .padding(.vertical, 10) 
                             
                             Text(manager.resultMessage)
                                 .font(.system(size: 54, weight: .heavy, design: .rounded)) 
                                 .foregroundColor(.white)
                                 .lineLimit(1) 
                                 .minimumScaleFactor(0.3) 
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.vertical, 10)
                         }
-                        // 加入超大内部间距，杜绝任何边缘接触可能
-                        .padding(.vertical, 30)
+                        .padding(.vertical, 20)
                         .padding(.horizontal, 20)
                         .shadow(color: manager.drawStatus == .wonBig ? .yellow.opacity(0.5) : .clear, radius: 20)
                         .blur(radius: manager.isDrawing ? 10 : 0)
-                        // 【关键】：最高只缩放到 1.0（开奖状态），普通状态缩放到 0.8。物理空间永远够用，不再裁剪！
                         .scaleEffect(manager.isDrawing ? 0.75 : (manager.drawStatus == .wonBig ? 1.0 : 0.8))
                         .animation(manager.isDrawing ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .spring(response: 0.4, dampingFraction: 0.6), value: manager.isDrawing)
                         
