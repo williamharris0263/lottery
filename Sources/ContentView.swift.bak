@@ -152,14 +152,7 @@ class LotteryManager: ObservableObject {
         resultTitle = title
         resultMessage = message
     }
-    
-    func saveConfig() {
-        UserDefaults.standard.set(configMaxParticipants, forKey: "L_Config_Max")
-        if let data = try? JSONEncoder().encode(configPrizes) { 
-            UserDefaults.standard.set(data, forKey: "L_Config_Prizes") 
-        }
-    }
-    
+
     // 持久化逻辑
     private func saveData() {
         UserDefaults.standard.set(activeMaxParticipants, forKey: "L_Max")
