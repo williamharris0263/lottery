@@ -144,7 +144,7 @@ class LotteryManager: ObservableObject {
         if let data = UserDefaults.standard.data(forKey: "L_Config_Prizes"), let config = try? JSONDecoder().decode([Prize].self, from: data) {
             configPrizes = config
         } else {
-            configPrizes = [Prize(name: "一等奖", count: 1), Prize(name: "二等奖", count: 3), Prize(name: "三等奖", count: 10)]
+            configPrizes = [Prize(name: "一等奖", count: 10), Prize(name: "二等奖", count: 10), Prize(name: "三等奖", count: 50)]
         }
         let savedMax = UserDefaults.standard.integer(forKey: "L_Max")
         if savedMax == 0 { resetToNewRound(); return }
