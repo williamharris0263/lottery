@@ -54,7 +54,6 @@ class LotteryManager: ObservableObject {
     @Published var prizePool: [UUID?] = []
     @Published var drawnCount: Int = 0
     
-    // 【修复核心1】：彻底解决第一行遮挡问题。在逻辑层保持文案，不再手动插换行符
     @Published var resultTitle: String = " " 
     @Published var resultMessage: String = "点击开启好运"
     
@@ -75,7 +74,12 @@ class LotteryManager: ObservableObject {
     private let greetings = ["✨ 天呐！", "🎁 运气爆表！", "🔥 哇塞！", "🎁 太棒了！", "🎊 手气不错！", "🎉 恭喜"]
     private let sadMessages = ["差一点就中了", "换个姿势再试", "大奖还在奖池里！", "别灰心，好运在后面", "换个手指再试一次？", "与好运擦肩而过"]
 
-    init() { loadData() }
+    init() { 
+	// 异步派发，先渲染UI
+        DispatchQueue.main.async {
+            self.loadData() 
+        }
+    }
     
     // 应用新设置，重置奖池并存档
     func resetToNewRound() {
@@ -98,7 +102,6 @@ class LotteryManager: ObservableObject {
         saveData()
     }
     
-    // 【修复核心2】：在UI逻辑层分离标题与正文。未中奖时不显示第一行
     func draw() {
         guard !prizePool.isEmpty, !isDrawing else { return }
         
@@ -147,7 +150,6 @@ class LotteryManager: ObservableObject {
         saveData()
     }
     
-    // 【修复核心1的配套逻辑】：更新文字状态
     private func currentResultTextUpdate(title: String, message: String) {
         resultTitle = title
         resultMessage = message
@@ -207,14 +209,13 @@ struct ConfettiView: View {
     }
 }
 
-// --- 5. 主界面 (挑高物理天花板，加入 Padding 缓冲) ---
 struct ContentView: View {
     @StateObject private var manager = LotteryManager()
     @State private var showSettings = false
     @State private var showStats = false
     @State private var breathingScale: CGFloat = 1.0
     
-    // 【修复核心3】：莫兰迪高级流光配色回调，中奖瞬间变色高潮
+    // 莫兰迪高级流光配色回调
     var backgroundColors: [Color] {
         switch manager.drawStatus {
         case .idle: return [Color(red: 0.1, green: 0.2, blue: 0.5), Color(red: 0.3, green: 0.1, blue: 0.4)]
@@ -228,20 +229,18 @@ struct ContentView: View {
     var body: some View {
         NavigationView {
             ZStack {
-                // 背景
                 LinearGradient(gradient: Gradient(colors: backgroundColors), startPoint: .topLeading, endPoint: .bottomTrailing)
                     .ignoresSafeArea()
                     .animation(.easeInOut(duration: 1.2), value: manager.drawStatus)
                 
                 if manager.showConfetti {
-                    // 【修复核心2 配套】：绑定计数器作为 ID。展开统计面板不再误触发礼花。
+                    // 绑定计数器作为 ID。展开统计面板不再误触发礼花。
                     ConfettiView().id(manager.confettiCounter) 
                 }
                 
                 VStack {
-                    Spacer()
-                    
-                    VStack(spacing: 14) { // 稍微缩小这里的间距
+                    Spacer()                
+                    VStack(spacing: 14) { 
                         if !manager.resultTitle.isEmpty {
                             Text(manager.resultTitle)
                                 .font(.system(size: 30, weight: .bold, design: .rounded))
@@ -264,13 +263,8 @@ struct ContentView: View {
                     .padding(.horizontal, 24)
                     .padding(.vertical, 20)
                     .padding(.top, 40)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24)
-                            .fill(Color.white.opacity(0.08))
-                    )
                     .blur(radius: manager.isDrawing ? 10 : 0)
-                    .scaleEffect(manager.isDrawing ? 0.92 : 1)
-                    
+                    .scaleEffect(manager.isDrawing ? 0.92 : 1)        
                     Spacer()
                         
                     // 经典粉橙呼吸按钮回调
@@ -283,14 +277,14 @@ struct ContentView: View {
                                     .font(.system(size: 36, weight: .black))
                                     .foregroundColor(manager.isDrawing ? .white.opacity(0.5) : .white)
                             )
-                            .shadow(color: manager.isDrawing ? .clear : Color.pink.opacity(0.5), radius: manager.isDrawing ? 0 : 20 * breathingScale, y: 10)
+                            .shadow(color: manager.isDrawing ? .clear : Color.pink.opacity(0.6), radius: manager.isDrawing ? 0 : 30 * breathingScale, y: 10)
                     }
                     .disabled(manager.prizePool.isEmpty || manager.isDrawing)
-                    .scaleEffect(manager.isDrawing ? 0.85 : (breathingScale))
-                    .animation(manager.isDrawing ? .easeIn(duration: 0.1) : .easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: breathingScale)
+                    .scaleEffect(manager.isDrawing ? 0.85 : (breathingScale * 0.95))
+                    .animation(manager.isDrawing ? .easeIn(duration: 0.1) : .easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: breathingScale)
                     .onAppear {
-                        // 【修复核心4】：彻底解决启动飞入Bug。延迟0.5秒等系统布局彻底死锁后再启动呼吸动效。
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { breathingScale = 1.04 }
+                        // 延迟0.5秒等系统布局彻底死锁后再启动呼吸动效。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { breathingScale = 1.15 }
                     }
                     
                     Spacer()
@@ -361,7 +355,7 @@ struct SettingsView: View {
                         HStack {
                             TextField("奖项名称", text: $prize.name)
                             Spacer()
-                            // 【修复核心2 配套】：用 Stepper 代替 TextField。光标更难点，手感更好且支持长按快速增减
+                            // 用 Stepper 代替 TextField。光标更难点，手感更好且支持长按快速增减
                             Stepper(value: $prize.count, in: 0...1000) {
                                 Text("\(prize.count) 个").font(.system(.body, design: .monospaced)).foregroundColor(.secondary)
                             }.frame(maxWidth: 160) // 限制宽度避免挤压名称
