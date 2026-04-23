@@ -3,7 +3,6 @@ import UIKit
 import AVFoundation
 import AudioToolbox
 
-
 // --- 1. 音效管理类 ---
 class SoundManager {
     static let instance = SoundManager()
@@ -41,7 +40,11 @@ enum DrawStatus {
 
 struct Particle: Identifiable {
     let id = UUID()
-    var x: CGFloat; var y: CGFloat; var rotation: Double; var scale: CGFloat; var emoji: String
+    var x: CGFloat
+    var y: CGFloat
+    var rotation: Double
+    var scale: CGFloat
+    var emoji: String
 }
 
 // --- 3. 抽奖逻辑控制器 ---
@@ -63,7 +66,9 @@ class LotteryManager: ObservableObject {
     // 配置态数据 (保证重启 App 不会丢失)
     @Published var configMaxParticipants: Int = 100
     @Published var configPrizes: [Prize] = [
-        Prize(name: "一等奖", count: 10), Prize(name: "二等奖", count: 10), Prize(name: "三等奖", count: 50)
+        Prize(name: "一等奖", count: 10), 
+        Prize(name: "二等奖", count: 10), 
+        Prize(name: "三等奖", count: 50)
     ]
 
     // 随机文案库
@@ -174,7 +179,10 @@ struct ConfettiView: View {
         GeometryReader { geo in
             ZStack {
                 ForEach(particles) { particle in
-                    Text(particle.emoji).font(.system(size: 30 * particle.scale)).rotationEffect(.degrees(particle.rotation)).position(x: particle.x, y: particle.y)
+                    Text(particle.emoji)
+                        .font(.system(size: 30 * particle.scale))
+                        .rotationEffect(.degrees(particle.rotation))
+                        .position(x: particle.x, y: particle.y)
                 }
             }
             .onAppear {
@@ -225,54 +233,61 @@ struct ContentView: View {
                 
                 VStack {
                     Spacer()
-                    VStack(spacing: 50) { // 稍微缩小这里的间距
-                        
-                        // 【修复核心】：挑高物理高度天花板，加入全面弹性缩放和上下 Padding 缓冲带，彻底防止 Emoji 和放大时的裁切
-                        VStack(spacing: 12) {
+                    
+                    VStack(spacing: 14) { // 稍微缩小这里的间距
+                        if !manager.resultTitle.isEmpty {
                             Text(manager.resultTitle)
-                                .font(.system(size: 32, weight: .bold, design: .rounded))
+                                .font(.system(size: 30, weight: .bold, design: .rounded))
                                 .foregroundColor(.white.opacity(0.9))
-                                .lineLimit(1) // 锁定单行
-                                .minimumScaleFactor(0.5) // 加入弹性缩放防右侧裁剪
-                                .padding(.top, 15) // 【关键】：顶部留出安全区，保护 Emoji 的“高帽”
-                            
-                            Text(manager.resultMessage)
-                                .font(.system(size: 42, weight: .heavy, design: .rounded))
-                                .foregroundColor(.white)
-                                .lineLimit(1) // 锁定单行
-                                .minimumScaleFactor(0.4) // 加入弹性缩放防右侧裁剪
-                                .padding(.bottom, 10)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                                .padding(.top, 20)
+                                .layoutPriority(1)
                         }
-                        .frame(minHeight: 180) // 【关键】：改用 minHeight，允许容器向上撑开，杜绝裁剪
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 20)
-                        .shadow(color: manager.drawStatus == .wonBig ? .yellow.opacity(0.5) : .clear, radius: 20)
-                        // 高斯模糊聚焦与流光瞬间揭晓动效
-                        .blur(radius: manager.isDrawing ? 10 : 0)
-                        .scaleEffect(manager.isDrawing ? 0.9 : (manager.drawStatus == .wonBig ? 1.15 : 1.0))
-                        .animation(manager.isDrawing ? .easeInOut(duration: 0.5).repeatForever(autoreverses: true) : .spring(response: 0.4, dampingFraction: 0.6), value: manager.isDrawing)
                         
-                        // 经典粉橙呼吸按钮回调
-                        Button(action: manager.draw) {
-                            Circle()
-                                .fill(LinearGradient(colors: manager.isDrawing ? [Color.white.opacity(0.2), Color.white.opacity(0.1)] : [Color(red: 0.9, green: 0.4, blue: 0.5), Color(red: 0.9, green: 0.6, blue: 0.3)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                                .frame(width: 180, height: 180)
-                                .overlay(
-                                    Text(manager.isDrawing ? "凝聚中" : "抽 奖")
-                                        .font(.system(size: 36, weight: .black))
-                                        .foregroundColor(manager.isDrawing ? .white.opacity(0.5) : .white)
-                                )
-                                .shadow(color: manager.isDrawing ? .clear : Color.pink.opacity(0.5), radius: manager.isDrawing ? 0 : 20 * breathingScale, y: 10)
-                        }
-                        .disabled(manager.prizePool.isEmpty || manager.isDrawing)
-                        .scaleEffect(manager.isDrawing ? 0.85 : (breathingScale))
-                        .animation(manager.isDrawing ? .easeIn(duration: 0.1) : .easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: breathingScale)
-                        .onAppear {
-                            // 【修复核心4】：彻底解决启动飞入Bug。延迟0.5秒等系统布局彻底死锁后再启动呼吸动效。
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { breathingScale = 1.04 }
-                        }
+                        Text(manager.resultMessage)
+                            .font(.system(size: 42, weight: .heavy, design: .rounded))
+                            .foregroundColor(.white)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .minimumScaleFactor(0.7)
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 12)
                     }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 20)
+                    .padding(.top, 40)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .blur(radius: manager.isDrawing ? 10 : 0)
+                    .scaleEffect(manager.isDrawing ? 0.92 : 1)
+                    
                     Spacer()
+                        
+                    // 经典粉橙呼吸按钮回调
+                    Button(action: manager.draw) {
+                        Circle()
+                            .fill(LinearGradient(colors: manager.isDrawing ? [Color.white.opacity(0.2), Color.white.opacity(0.1)] : [Color(red: 0.9, green: 0.4, blue: 0.5), Color(red: 0.9, green: 0.6, blue: 0.3)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .frame(width: 180, height: 180)
+                            .overlay(
+                                Text(manager.isDrawing ? "凝聚中" : "抽 奖")
+                                    .font(.system(size: 36, weight: .black))
+                                    .foregroundColor(manager.isDrawing ? .white.opacity(0.5) : .white)
+                            )
+                            .shadow(color: manager.isDrawing ? .clear : Color.pink.opacity(0.5), radius: manager.isDrawing ? 0 : 20 * breathingScale, y: 10)
+                    }
+                    .disabled(manager.prizePool.isEmpty || manager.isDrawing)
+                    .scaleEffect(manager.isDrawing ? 0.85 : (breathingScale))
+                    .animation(manager.isDrawing ? .easeIn(duration: 0.1) : .easeInOut(duration: 1.5).repeatForever(autoreverses: true), value: breathingScale)
+                    .onAppear {
+                        // 【修复核心4】：彻底解决启动飞入Bug。延迟0.5秒等系统布局彻底死锁后再启动呼吸动效。
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { breathingScale = 1.04 }
+                    }
+                    
+                    Spacer()
+                    
                     VStack {
                         Button(action: { withAnimation(.spring()) { showStats.toggle() } }) {
                             Text(showStats ? "隐藏实时数据" : "⚙️ 展开实时数据")
@@ -304,9 +319,6 @@ struct ContentView: View {
                     }
                     .padding(.bottom, 30)
                 }
-                
-                // 彻底删除 flashTrigger 的代码残留，避免编译报错和视觉刺眼
-                
             }
             .navigationBarHidden(true)
             .overlay(
@@ -326,6 +338,7 @@ struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @ObservedObject var manager: LotteryManager
     @State private var showConfirmReset = false
+    
     var body: some View {
         NavigationView {
             Form {
